@@ -17,13 +17,21 @@ function watchConnection(connection: Connection, instance: SDKConnect) {
           channelId: connection.channelId,
           sendTerminate: false,
         });
-        instance.state.connections[connection.channelId].connected = false;
+        if (instance.state.connections[connection.channelId]) {
+          instance.state.connections[connection.channelId].connected = false;
+        }
       } else if (connectionStatus === ConnectionStatus.DISCONNECTED) {
         instance.updateSDKLoadingState({
           channelId: connection.channelId,
           loading: false,
         });
-        instance.state.connections[connection.channelId].connected = false;
+        if (instance.state.connections[connection.channelId]) {
+          instance.state.connections[connection.channelId].connected = false;
+        }
+      } else if (connectionStatus === ConnectionStatus.WAITING) {
+        if (instance.state.connections[connection.channelId]) {
+          instance.state.connections[connection.channelId].connected = false;
+        }
       }
       store.dispatch(resetConnections(instance.state.connections));
       DevLogger.log(
@@ -31,6 +39,16 @@ function watchConnection(connection: Connection, instance: SDKConnect) {
       );
     },
   );
+
+  connection.remote.on(EventType.CHANNEL_PERSISTENCE, () => {
+    DevLogger.log(
+      `SDKConnect::watchConnection CHANNEL_PERSISTENCE ${connection.channelId}`,
+    );
+    if (instance.state.connections[connection.channelId]) {
+      instance.state.connections[connection.channelId].relayPersistence = true;
+      store.dispatch(resetConnections(instance.state.connections));
+    }
+  });
 
   connection.remote.on(EventType.CLIENTS_DISCONNECTED, () => {
     const host = AppConstants.MM_SDK.SDK_REMOTE_ORIGIN + connection.channelId;

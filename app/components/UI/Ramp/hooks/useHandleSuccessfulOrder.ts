@@ -33,12 +33,10 @@ function useHandleSuccessfulOrder() {
       if (!token) return;
 
       const { address, symbol, decimals, network, name } = token;
-      const chainId = network?.chainId;
+      // TODO(ramp, chainId-string): remove once chainId is a string
+      const chainId = `${network?.chainId}`;
 
-      if (
-        Number(chainId) !== Number(selectedChainId) ||
-        address === NATIVE_ADDRESS
-      ) {
+      if (chainId !== selectedChainId || address === NATIVE_ADDRESS) {
         return;
       }
 
@@ -49,7 +47,7 @@ function useHandleSuccessfulOrder() {
           toLowerCaseEquals(t.address, address),
         )
       ) {
-        await TokensController.addToken(address, symbol, decimals, { name });
+        await TokensController.addToken({ address, symbol, decimals, name });
       }
     },
     [selectedChainId],

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import {
   TouchableOpacity,
@@ -9,7 +9,7 @@ import {
   FlatList,
   RefreshControl,
 } from 'react-native';
-import { connect, useSelector } from 'react-redux';
+import { connect } from 'react-redux';
 import { fontStyles } from '../../../styles/common';
 import { strings } from '../../../../locales/i18n';
 import Engine from '../../../core/Engine';
@@ -23,7 +23,7 @@ import {
 import { removeFavoriteCollectible } from '../../../actions/collectibles';
 import Text from '../../Base/Text';
 import AppConstants from '../../../core/AppConstants';
-import { isIPFSUri, toLowerCaseEquals } from '../../../util/general';
+import { toLowerCaseEquals } from '../../../util/general';
 import { compareTokenIds } from '../../../util/tokens';
 import CollectibleDetectionModal from '../CollectibleDetectionModal';
 import { useTheme } from '../../../util/theme';
@@ -34,16 +34,15 @@ import {
   selectProviderType,
 } from '../../../selectors/networkController';
 import {
+  selectDisplayNftMedia,
   selectIsIpfsGatewayEnabled,
   selectSelectedAddress,
   selectUseNftDetection,
-  selectDisplayNftMedia,
 } from '../../../selectors/preferencesController';
 import {
   IMPORT_NFT_BUTTON_ID,
   NFT_TAB_CONTAINER_ID,
 } from '../../../../wdio/screen-objects/testIDs/Screens/WalletView.testIds';
-import Logger from '../../../util/Logger';
 import { useMetrics } from '../../../components/hooks/useMetrics';
 
 const createStyles = (colors) =>
@@ -104,6 +103,7 @@ const CollectibleContracts = ({
   removeFavoriteCollectible,
   useNftDetection,
   isIpfsGatewayEnabled,
+  displayNftMedia,
 }) => {
   const collectibles = allCollectibles.filter(
     (singleCollectible) => singleCollectible.isCurrentlyOwned === true,
@@ -113,13 +113,6 @@ const CollectibleContracts = ({
   const styles = createStyles(colors);
   const [isAddNFTEnabled, setIsAddNFTEnabled] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  const [isRemovingNftInProgress, setIsRemovingNftInProgress] = useState(false);
-
-  const toggleRemovingProgress = () =>
-    setIsRemovingNftInProgress((value) => !value);
-
-  const displayNftMedia = useSelector(selectDisplayNftMedia);
 
   const isCollectionDetectionBannerVisible =
     networkType === MAINNET && !useNftDetection;
@@ -160,19 +153,68 @@ const CollectibleContracts = ({
     typeof collectible.tokenId === 'number' ||
     (typeof collectible.tokenId === 'string' && !isNaN(collectible.tokenId));
 
-  /**
-   * Method to updated collectible and avoid backwards compatibility issues.
-   * @param address - Collectible address.
-   * @param tokenId - Collectible token ID.
-   */
-  const updateCollectibleMetadata = useCallback(
+  const updateAllCollectibleMetadata = useCallback(
+    async (collectibles) => {
+      const { NftController } = Engine.context;
+      // Filter out ignored collectibles
+      const filteredcollectibles = collectibles.filter(
+        (collectible) => !isCollectibleIgnored(collectible),
+      );
+
+      // filter removable collectible
+      const removable = filteredcollectibles.filter((single) =>
+        String(single.tokenId).includes('e+'),
+      );
+      const updatable = filteredcollectibles.filter(
+        (single) => !String(single.tokenId).includes('e+'),
+      );
+
+      removable.forEach((elm) => {
+        removeFavoriteCollectible(selectedAddress, chainId, elm);
+      });
+
+      filteredcollectibles.forEach((collectible) => {
+        if (String(collectible.tokenId).includes('e+')) {
+          removeFavoriteCollectible(selectedAddress, chainId, collectible);
+        }
+      });
+
+      if (updatable.length !== 0) {
+        await NftController.updateNftMetadata({
+          nfts: updatable,
+          userAddress: selectedAddress,
+        });
+      }
+    },
+    [isCollectibleIgnored, removeFavoriteCollectible, chainId, selectedAddress],
+  );
+
+  useEffect(() => {
+    if (!isIpfsGatewayEnabled && !displayNftMedia) {
+      return;
+    }
+    // TO DO: Move this fix to the controllers layer
+    const updatableCollectibles = collectibles.filter((single) =>
+      shouldUpdateCollectibleMetadata(single),
+    );
+    if (updatableCollectibles.length !== 0) {
+      updateAllCollectibleMetadata(updatableCollectibles);
+    }
+  }, [
+    collectibles,
+    updateAllCollectibleMetadata,
+    isIpfsGatewayEnabled,
+    displayNftMedia,
+  ]);
+
+  /*   const updateCollectibleMetadata = useCallback(
     async (collectible) => {
       const { NftController } = Engine.context;
       const { address, tokenId } = collectible;
 
       const isIgnored = isCollectibleIgnored(collectible);
 
-      if (!isRemovingNftInProgress && !isIgnored) {
+      if (!isIgnored) {
         if (String(tokenId).includes('e+')) {
           removeFavoriteCollectible(selectedAddress, chainId, collectible);
         } else {
@@ -180,13 +222,7 @@ const CollectibleContracts = ({
         }
       }
     },
-    [
-      chainId,
-      removeFavoriteCollectible,
-      selectedAddress,
-      isCollectibleIgnored,
-      isRemovingNftInProgress,
-    ],
+    [chainId, removeFavoriteCollectible, selectedAddress, isCollectibleIgnored],
   );
 
   useEffect(() => {
@@ -196,80 +232,7 @@ const CollectibleContracts = ({
         updateCollectibleMetadata(collectible);
       }
     });
-  }, [collectibles, updateCollectibleMetadata]);
-
-  const memoizedCollectibles = useMemo(() => collectibles, [collectibles]);
-
-  const isNftUpdatableWithOpenSea = (collectible) =>
-    Boolean(
-      !collectible.image &&
-        !collectible.name &&
-        !collectible.description &&
-        // Preventing on a loop if the proxy or open sea api can't be fetched
-        !(
-          collectible.error?.startsWith('Opensea') ||
-          collectible.error?.startsWith('Both')
-        ),
-    );
-
-  const updateOpenSeaUnfetchedMetadata = useCallback(async () => {
-    try {
-      if (displayNftMedia) {
-        const promises = memoizedCollectibles.map(async (collectible) => {
-          if (isNftUpdatableWithOpenSea(collectible)) {
-            await updateCollectibleMetadata(collectible);
-          }
-        });
-
-        await Promise.all(promises);
-      }
-    } catch (error) {
-      Logger.error(
-        error,
-        'error while trying to update metadata of stored nfts',
-      );
-    }
-  }, [updateCollectibleMetadata, memoizedCollectibles, displayNftMedia]);
-
-  useEffect(() => {
-    updateOpenSeaUnfetchedMetadata();
-  }, [updateOpenSeaUnfetchedMetadata]);
-
-  const isNftUpdatableWithThirdParties = (collectible) =>
-    Boolean(
-      !collectible.image &&
-        !collectible.name &&
-        !collectible.description &&
-        isIPFSUri(collectible.tokenURI) &&
-        // Preventing on a loop if the third party service can't be fetched
-        !(
-          collectible.error?.startsWith('URI') ||
-          collectible.error?.startsWith('Both')
-        ),
-    );
-
-  const updateThirdPartyUnfetchedMetadata = useCallback(async () => {
-    try {
-      if (isIpfsGatewayEnabled) {
-        const promises = memoizedCollectibles.map(async (collectible) => {
-          if (isNftUpdatableWithThirdParties(collectible)) {
-            await updateCollectibleMetadata(collectible);
-          }
-        });
-
-        await Promise.all(promises);
-      }
-    } catch (error) {
-      Logger.error(
-        error,
-        'error while trying to update metadata of stored nfts',
-      );
-    }
-  }, [updateCollectibleMetadata, isIpfsGatewayEnabled, memoizedCollectibles]);
-
-  useEffect(() => {
-    updateThirdPartyUnfetchedMetadata();
-  }, [updateThirdPartyUnfetchedMetadata]);
+  }, [collectibles, updateCollectibleMetadata]); */
 
   const goToAddCollectible = useCallback(() => {
     setIsAddNFTEnabled(false);
@@ -310,7 +273,6 @@ const CollectibleContracts = ({
           key={item.address}
           contractCollectibles={contractCollectibles}
           collectiblesVisible={index === 0}
-          toggleRemovingProgress={toggleRemovingProgress}
         />
       );
     },
@@ -333,12 +295,10 @@ const CollectibleContracts = ({
           key={'Favorites'}
           contractCollectibles={filteredCollectibles}
           collectiblesVisible
-          toggleRemovingProgress={toggleRemovingProgress}
         />
       )
     );
   }, [favoriteCollectibles, collectibles, onItemPress]);
-
   const onRefresh = useCallback(async () => {
     requestAnimationFrame(async () => {
       setRefreshing(true);
@@ -474,9 +434,13 @@ CollectibleContracts.propTypes = {
    */
   useNftDetection: PropTypes.bool,
   /**
-   * Boolean to show if NFT detection is enabled
+   * Boolean to show content stored on IPFS
    */
   isIpfsGatewayEnabled: PropTypes.bool,
+  /**
+   * Boolean to show Nfts media stored on third parties
+   */
+  displayNftMedia: PropTypes.bool,
 };
 
 const mapStateToProps = (state) => ({
@@ -488,6 +452,7 @@ const mapStateToProps = (state) => ({
   collectibles: collectiblesSelector(state),
   favoriteCollectibles: favoritesCollectiblesSelector(state),
   isIpfsGatewayEnabled: selectIsIpfsGatewayEnabled(state),
+  displayNftMedia: selectDisplayNftMedia(state),
 });
 
 const mapDispatchToProps = (dispatch) => ({

@@ -2,14 +2,12 @@
 
 // Third party dependencies.
 import React, { useCallback, useRef } from 'react';
-import { Platform, View } from 'react-native';
+import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSelector } from 'react-redux';
-
 // External dependencies.
 import TabBarItem from '../TabBarItem';
 import { useStyles } from '../../../hooks';
-import generateTestId from '../../../../../wdio/utils/generateTestId';
 import Routes from '../../../../constants/navigation/Routes';
 import { useTheme } from '../../../../util/theme';
 import { MetaMetricsEvents } from '../../../../core/Analytics';
@@ -36,13 +34,12 @@ const TabBar = ({ state, descriptors, navigation }: TabBarProps) => {
    * Current onboarding wizard step
    */
   const wizardStep = useSelector((reduxState: any) => reduxState.wizard.step);
-
   /**
    * Return current step of onboarding wizard if not step 5 nor 0
    */
   const renderOnboardingWizard = useCallback(
     () =>
-      [4, 5].includes(wizardStep) && (
+      [4, 5, 6].includes(wizardStep) && (
         <OnboardingWizard navigation={navigation} coachmarkRef={tabBarRef} />
       ),
     [navigation, wizardStep],
@@ -56,7 +53,7 @@ const TabBar = ({ state, descriptors, navigation }: TabBarProps) => {
       //TODO: use another option on add it to the prop interface
       const callback = options.callback;
       const rootScreenName = options.rootScreenName;
-      const key = `tab-bar-item-${tabBarIconKey}`;
+      const key = `tab-bar-item-${tabBarIconKey}`; // this key is also used to identify elements for e2e testing
       const isSelected = state.index === index;
       const icon = ICON_BY_TAB_BAR_ICON_KEY[tabBarIconKey];
       const onPress = () => {
@@ -121,7 +118,7 @@ const TabBar = ({ state, descriptors, navigation }: TabBarProps) => {
           iconSize={iconProps.size}
           iconBackgroundColor={iconProps.backgroundColor}
           iconColor={iconProps.color}
-          {...generateTestId(Platform, key)}
+          testID={key}
         />
       );
     },

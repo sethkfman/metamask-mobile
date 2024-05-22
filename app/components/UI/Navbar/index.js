@@ -22,17 +22,18 @@ import AppConstants from '../../../core/AppConstants';
 import DeeplinkManager from '../../../core/DeeplinkManager/SharedDeeplinkManager';
 import { MetaMetrics, MetaMetricsEvents } from '../../../core/Analytics';
 import { importAccountFromPrivateKey } from '../../../util/address';
+import { isNotificationsFeatureEnabled } from '../../../util/notifications';
 import Device from '../../../util/device';
 import PickerNetwork from '../../../component-library/components/Pickers/PickerNetwork';
 import BrowserUrlBar from '../BrowserUrlBar';
 import generateTestId from '../../../../wdio/utils/generateTestId';
 import { NAVBAR_NETWORK_BUTTON } from '../../../../wdio/screen-objects/testIDs/Screens/WalletView.testIds';
 import { NAV_ANDROID_BACK_BUTTON } from '../../../../wdio/screen-objects/testIDs/Screens/NetworksScreen.testids';
-import { SEND_CANCEL_BUTTON } from '../../../../wdio/screen-objects/testIDs/Screens/SendScreen.testIds';
 import { ASSET_BACK_BUTTON } from '../../../../wdio/screen-objects/testIDs/Screens/TokenOverviewScreen.testIds';
 import { REQUEST_SEARCH_RESULTS_BACK_BUTTON } from '../../../../wdio/screen-objects/testIDs/Screens/RequestToken.testIds';
 import { BACK_BUTTON_SIMPLE_WEBVIEW } from '../../../../wdio/screen-objects/testIDs/Components/SimpleWebView.testIds';
 import { EDIT_BUTTON } from '../../../../wdio/screen-objects/testIDs/Common.testIds';
+import Routes from '../../../constants/navigation/Routes';
 
 import ButtonIcon, {
   ButtonIconSizes,
@@ -50,6 +51,8 @@ import { CommonSelectorsIDs } from '../../../../e2e/selectors/Common.selectors';
 import { WalletViewSelectorsIDs } from '../../../../e2e/selectors/WalletView.selectors';
 import { NetworksViewSelectorsIDs } from '../../../../e2e/selectors/Settings/NetworksView.selectors';
 import { SendLinkViewSelectorsIDs } from '../../../../e2e/selectors/SendLinkView.selectors';
+import { SendViewSelectorsIDs } from '../../../../e2e/selectors/SendView.selectors';
+import { getBlockaidTransactionMetricsParams } from '../../../util/blockaid';
 
 const trackEvent = (event, params = {}) => {
   MetaMetrics.getInstance().trackEvent(event, params);
@@ -88,11 +91,17 @@ const styles = StyleSheet.create({
     paddingVertical: Device.isAndroid() ? 14 : 8,
   },
   infoButton: {
-    paddingRight: Device.isAndroid() ? 22 : 18,
+    paddingRight: Device.isAndroid() ? 0 : 18,
+
     marginTop: 5,
   },
   disabled: {
     opacity: 0.3,
+  },
+  leftButtonContainer: {
+    marginRight: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
   },
   optinHeaderLeft: {
     flexDirection: 'row',
@@ -512,6 +521,7 @@ export function getSendFlowTitle(
   route,
   themeColors,
   resetTransaction,
+  transaction,
 ) {
   const innerStyles = StyleSheet.create({
     headerButtonText: {
@@ -527,9 +537,12 @@ export function getSendFlowTitle(
   });
   const rightAction = () => {
     const providerType = route?.params?.providerType ?? '';
+    const additionalTransactionMetricsParams =
+      getBlockaidTransactionMetricsParams(transaction);
     trackEvent(MetaMetricsEvents.SEND_FLOW_CANCEL, {
       view: title.split('.')[1],
       network: providerType,
+      ...additionalTransactionMetricsParams,
     });
     resetTransaction();
     navigation.dangerouslyGetParent()?.pop();
@@ -548,7 +561,7 @@ export function getSendFlowTitle(
       <TouchableOpacity
         onPress={rightAction}
         style={styles.closeButton}
-        {...generateTestId(Platform, SEND_CANCEL_BUTTON)}
+        testID={SendViewSelectorsIDs.SEND_CANCEL_BUTTON}
       >
         <Text style={innerStyles.headerButtonText}>
           {strings('transaction.cancel')}
@@ -582,6 +595,7 @@ export function getBrowserViewNavbarOptions(
   route,
   themeColors,
   rightButtonAnalyticsEvent,
+  headerShown = true,
 ) {
   const innerStyles = StyleSheet.create({
     headerStyle: {
@@ -621,6 +635,7 @@ export function getBrowserViewNavbarOptions(
       />
     ),
     headerStyle: innerStyles.headerStyle,
+    headerShown,
   };
 }
 
@@ -887,6 +902,7 @@ export function getWalletNavbarOptions(
   onPressTitle,
   navigation,
   themeColors,
+  isNotificationEnabled,
 ) {
   const innerStyles = StyleSheet.create({
     headerStyle: {
@@ -955,6 +971,14 @@ export function getWalletNavbarOptions(
     trackEvent(MetaMetricsEvents.WALLET_QR_SCANNER);
   }
 
+  function handleNotificationOnPress() {
+    if (isNotificationEnabled && isNotificationsFeatureEnabled()) {
+      navigation.navigate(Routes.NOTIFICATIONS.VIEW);
+    } else {
+      navigation.navigate(Routes.NOTIFICATIONS.OPT_IN_STACK);
+    }
+  }
+
   return {
     headerTitle: () => (
       <View style={innerStyles.headerTitle}>
@@ -975,17 +999,113 @@ export function getWalletNavbarOptions(
       />
     ),
     headerRight: () => (
-      <ButtonIcon
-        variant={ButtonIconVariants.Primary}
-        onPress={openQRScanner}
-        iconName={IconName.Scan}
-        style={styles.infoButton}
-        size={IconSize.Xl}
-        testID={WalletViewSelectorsIDs.WALLET_SCAN_BUTTON}
-      />
+      <View style={styles.leftButtonContainer}>
+        {isNotificationsFeatureEnabled() && (
+          <ButtonIcon
+            variant={ButtonIconVariants.Primary}
+            onPress={handleNotificationOnPress}
+            iconName={IconName.Notification}
+            style={styles.infoButton}
+            size={IconSize.Xl}
+            testID={WalletViewSelectorsIDs.WALLET_NOTIFICATIONS_BUTTON}
+          />
+        )}
+
+        <ButtonIcon
+          variant={ButtonIconVariants.Primary}
+          onPress={openQRScanner}
+          iconName={IconName.Scan}
+          style={styles.infoButton}
+          size={IconSize.Xl}
+          testID={WalletViewSelectorsIDs.WALLET_SCAN_BUTTON}
+        />
+      </View>
     ),
     headerStyle: innerStyles.headerStyle,
     headerTintColor: themeColors.primary.default,
+  };
+}
+
+/**
+ * Function that returns the navigation options containing title and network indicator
+ *
+ * @param {string} title - Title in string format
+ * @param {boolean} translate - Boolean that specifies if the title needs translation
+ * @param {Object} navigation - Navigation object required to push new views
+ * @param {Object} themeColors - Colors from theme
+ * @param {boolean} disableNetwork - Boolean that determines if network is accessible from navbar
+ * @param {Function} onClose - Onclose navbar function
+ * @returns {Object} - Corresponding navbar options containing headerTitle and headerTitle
+ */
+export function getImportTokenNavbarOptions(
+  title,
+  translate,
+  navigation,
+  themeColors,
+  disableNetwork = false,
+  contentOffset = 0,
+  onClose = undefined,
+) {
+  const innerStyles = StyleSheet.create({
+    headerStyle: {
+      backgroundColor: themeColors.background.default,
+      shadowColor: importedColors.transparent,
+      elevation: 0,
+    },
+    headerShadow: {
+      elevation: 2,
+      shadowColor: themeColors.background.primary,
+      shadowOpacity: contentOffset < 20 ? contentOffset / 100 : 0.2,
+      shadowOffset: { height: 4, width: 0 },
+      shadowRadius: 8,
+    },
+    headerIcon: {
+      color: themeColors.primary.default,
+    },
+    title: {
+      textAlign: 'center',
+      fontWeight: 'bold',
+    },
+  });
+  return {
+    headerTitle: () => (
+      <NavbarTitle
+        disableNetwork={disableNetwork}
+        showSelectedNetwork={false}
+        translate={translate}
+      >
+        {title}
+      </NavbarTitle>
+    ),
+    headerRight: () => (
+      // eslint-disable-next-line react/jsx-no-bind
+      <TouchableOpacity
+        style={styles.backButton}
+        {...generateTestId(Platform, ASSET_BACK_BUTTON)}
+      >
+        <ButtonIcon
+          iconName={IconName.Close}
+          variant={ButtonIconVariants.Secondary}
+          size={ButtonIconSizes.Lg}
+          onPress={
+            onClose
+              ? () => onClose()
+              : () =>
+                  navigation.navigate(Routes.WALLET.HOME, {
+                    screen: Routes.WALLET.TAB_STACK_FLOW,
+                    params: {
+                      screen: Routes.WALLET_VIEW,
+                    },
+                  })
+          }
+        />
+      </TouchableOpacity>
+    ),
+    headerLeft: null,
+    headerStyle: [
+      innerStyles.headerStyle,
+      contentOffset && innerStyles.headerShadow,
+    ],
   };
 }
 

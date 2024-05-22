@@ -22,13 +22,14 @@ const generateOpt = (
   return { category: name };
 };
 
-const ONBOARDING_WIZARD_STEP_DESCRIPTION = {
+const ONBOARDING_WIZARD_STEP_DESCRIPTION: { [key: number]: string } = {
   1: 'Welcome',
   2: 'Accounts',
   3: 'Account Name',
-  4: 'Main Navigation',
-  5: 'Browser',
-  6: 'Search',
+  4: 'Notifications',
+  5: 'Main Navigation',
+  6: 'Browser',
+  7: 'Search',
 };
 
 /**
@@ -280,6 +281,9 @@ enum EVENT_NAME {
   // Bridge
   BRIDGE_LINK_CLICKED = 'Bridge Linked Clicked',
 
+  // Stake
+  STAKE_BUTTON_CLICKED = 'Stake Button Clicked',
+
   // Force Upgrade | Automatic Security Checks
   FORCE_UPGRADE_UPDATE_NEEDED_PROMPT_VIEWED = 'Force Upgrade Update Needed Prompt Viewed',
   FORCE_UPGRADE_UPDATE_TO_THE_LATEST_VERSION_CLICKED = 'Force Upgrade Clicked Update to Latest Version',
@@ -349,6 +353,13 @@ enum EVENT_NAME {
   LEDGER_HARDWARE_TRANSACTION_CANCELLED = 'User canceled Ledger hardware transaction',
   LEDGER_HARDWARE_WALLET_ERROR = 'Ledger hardware wallet error',
   LEDGER_HARDWARE_WALLET_FORGOTTEN = 'Ledger hardware wallet forgotten',
+
+  //Notifications
+  ALL_NOTIFICATIONS = 'All Notifications',
+  WALLET_NOTIFICATIONS = 'Wallet Notifications',
+  ANNOUCEMENTS_NOTIFICATIONS = 'Annoucements Notifications',
+  // Smart transactions
+  SMART_TRANSACTION_OPT_IN = 'Smart Transaction Opt In',
 }
 
 enum ACTIONS {
@@ -396,6 +407,11 @@ enum ACTIONS {
   ADVANCED_SETTINGS_ETH_SIGN_FRICTION_SECOND_STEP = 'eth_sign_input_seen',
   ADVANCED_SETTINGS_ETH_SIGN_ENABLED = 'eth_sign_enabled',
   ADVANCED_SETTINGS_ETH_SIGN_DISABLED = 'eth_sign_disabled',
+  STAKE = 'Stake',
+  // Notifications
+  SELECTS_ALL_NOTIFICATIONS = 'Selects All Notifications',
+  SELECTS_WALLET_NOTIFICATIONS = 'Selects Wallet Notifications',
+  SELECTS_ANNOUCEMENTS_NOTIFICATIONS = 'Selects Annoucements Notifications',
 }
 
 const events = {
@@ -821,6 +837,23 @@ const events = {
   LEDGER_HARDWARE_WALLET_FORGOTTEN: generateOpt(
     EVENT_NAME.LEDGER_HARDWARE_WALLET_FORGOTTEN,
   ),
+
+  // Smart transactions
+  SMART_TRANSACTION_OPT_IN: generateOpt(EVENT_NAME.SMART_TRANSACTION_OPT_IN),
+
+  // Notifications
+  ALL_NOTIFICATIONS: generateOpt(
+    EVENT_NAME.ALL_NOTIFICATIONS,
+    ACTIONS.SELECTS_ALL_NOTIFICATIONS,
+  ),
+  WALLET_NOTIFICATIONS: generateOpt(
+    EVENT_NAME.WALLET_NOTIFICATIONS,
+    ACTIONS.SELECTS_WALLET_NOTIFICATIONS,
+  ),
+  ANNOUCEMENTS_NOTIFICATIONS: generateOpt(
+    EVENT_NAME.ANNOUCEMENTS_NOTIFICATIONS,
+    ACTIONS.SELECTS_ANNOUCEMENTS_NOTIFICATIONS,
+  ),
 };
 
 /**
@@ -893,6 +926,7 @@ enum DESCRIPTION {
   // Settings
   SETTINGS_GENERAL = 'General',
   SETTINGS_ADVANCED = 'Advanced',
+  SETTINGS_NOTIFICATIONS = 'Notifications',
   SETTINGS_SECURITY_AND_PRIVACY = 'Security & Privacy',
   SETTINGS_ABOUT = 'About MetaMask',
   SETTINGS_EXPERIMENTAL = 'Experimental',
@@ -917,6 +951,8 @@ enum DESCRIPTION {
   PAYMENTS_SELECTS_APPLE_PAY = 'Selects Apple Pay as payment method',
   SWAPS = 'Swaps',
   BRIDGE = 'Bridge',
+  STAKE = 'Stake',
+  NOTIFICATIONS = 'Notifications',
 }
 
 const legacyMetaMetricsEvents = {
@@ -1220,6 +1256,11 @@ const legacyMetaMetricsEvents = {
     ACTIONS.SETTINGS,
     DESCRIPTION.SETTINGS_EXPERIMENTAL,
   ),
+  SETTINGS_NOTIFICATIONS: generateOpt(
+    EVENT_NAME.SETTINGS,
+    ACTIONS.SETTINGS,
+    DESCRIPTION.SETTINGS_NOTIFICATIONS,
+  ),
   // Receive Options
   RECEIVE_OPTIONS_SHARE_ADDRESS: generateOpt(
     EVENT_NAME.RECEIVE_OPTIONS,
@@ -1378,6 +1419,11 @@ const legacyMetaMetricsEvents = {
     EVENT_NAME.BRIDGE_LINK_CLICKED,
     ACTIONS.BRIDGE,
     DESCRIPTION.BRIDGE,
+  ),
+  STAKE_BUTTON_CLICKED: generateOpt(
+    EVENT_NAME.STAKE_BUTTON_CLICKED,
+    ACTIONS.STAKE,
+    DESCRIPTION.STAKE,
   ),
 };
 

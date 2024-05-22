@@ -48,25 +48,20 @@
   "TokenDetectionController": {},
   "NftDetectionController": {},
   "PPOMController": {
-    "chainStatus": {
-      "0x1": {
-        "chainId": "0x1",
-        "versionInfo": []
-      }
-    },
     "storageMetadata": [],
     "versionFileETag": "",
     "versionInfo": []
   },
 
   "CurrencyRateController": {
-    "conversionDate": 0,
-    "conversionRate": 0,
     "currentCurrency": "usd",
-    "nativeCurrency": "ETH",
-    "pendingCurrentCurrency": null,
-    "pendingNativeCurrency": null,
-    "usdConversionRate": null
+    "currencyRates": {
+      "ETH":{
+        "conversionDate":0,
+        "conversionRate": 0,
+        "usdConversionRate": null
+      }
+    }
   },
   "NetworkController": {
     "networkConfigurations": {},
@@ -78,7 +73,6 @@
     "networksMetadata": {
       "mainnet":{  "EIPS": {},"status": "unknown"}
     },
-    "networkId": null,
     "selectedNetworkClientId": "mainnet"
   },
   "PhishingController": {
@@ -125,7 +119,8 @@
       "0x505": true,
       "0x64": true
     },
-    "isIpfsGatewayEnabled": true
+    "isIpfsGatewayEnabled": true,
+    "smartTransactionsOptInStatus": false 
   },
   "TokenBalancesController": {
     "contractBalances": {}
@@ -139,6 +134,11 @@
     "methodData": {},
     "submitHistory": [],
     "transactions": []
+  },
+  "SmartTransactionsController": {
+    "smartTransactionsState": {
+      "liveness": true
+    }
   },
   "SnapController": {
     "snapStates": {},
@@ -203,7 +203,8 @@
   "GasFeeController": {
     "gasFeeEstimates": {},
     "estimatedGasFeeTimeBounds": {},
-    "gasEstimateType": "none"
+    "gasEstimateType": "none",
+    "gasFeeEstimatesByChainId": {}
   },
   "ApprovalController": {
     "pendingApprovals": {},

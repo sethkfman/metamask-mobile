@@ -7,7 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { connect } from 'react-redux';
 import { getSendFlowTitle } from '../../../../UI/Navbar';
@@ -99,15 +98,13 @@ import {
 import { selectContractExchangeRates } from '../../../../../selectors/tokenRatesController';
 import { selectAccounts } from '../../../../../selectors/accountTrackerController';
 import { selectContractBalances } from '../../../../../selectors/tokenBalancesController';
-import generateTestId from '../../../../../../wdio/utils/generateTestId';
-import { COMFIRM_TXN_AMOUNT } from '../../../../../../wdio/screen-objects/testIDs/Screens/TransactionConfirm.testIds';
 import { isNetworkRampNativeTokenSupported } from '../../../../../components/UI/Ramp/utils';
 import { getRampNetworks } from '../../../../../reducers/fiatOrders';
 import { ConfirmViewSelectorsIDs } from '../../../../../../e2e/selectors/SendFlow/ConfirmView.selectors';
 import ExtendedKeyringTypes from '../../../../../constants/keyringTypes';
 import { getLedgerKeyring } from '../../../../../core/Ledger/Ledger';
 import {
-  getBlockaidMetricsParams,
+  getBlockaidTransactionMetricsParams,
   isBlockaidFeatureEnabled,
 } from '../../../../../util/blockaid';
 import ppomUtil from '../../../../../lib/ppom/ppom-util';
@@ -119,6 +116,10 @@ import { withMetricsAwareness } from '../../../../../components/hooks/useMetrics
 import { selectTransactionGasFeeEstimates } from '../../../../../selectors/confirmTransaction';
 import { selectGasFeeControllerEstimateType } from '../../../../../selectors/gasFeeController';
 import { updateTransaction } from '../../../../../util/transaction-controller';
+import { selectShouldUseSmartTransaction } from '../../../../../selectors/smartTransactionsController';
+import { STX_NO_HASH_ERROR } from '../../../../../util/smart-transactions/smart-publish-hook';
+import { getSmartTransactionMetricsProperties } from '../../../../../util/smart-transactions';
+import { TransactionConfirmViewSelectorsIDs } from '../../../../../../e2e/selectors/TransactionConfirmView.selectors.js';
 
 const EDIT = 'edit';
 const EDIT_NONCE = 'edit_nonce';
@@ -240,6 +241,10 @@ class Confirm extends PureComponent {
      * Set transaction ID
      */
     setTransactionId: PropTypes.func,
+    /**
+     * Boolean that indicates if smart transaction should be used
+     */
+    shouldUseSmartTransaction: PropTypes.bool,
   };
 
   state = {
@@ -279,10 +284,22 @@ class Confirm extends PureComponent {
     setProposedNonce(proposedNonce);
   };
 
-  getAnalyticsParams = () => {
+  getAnalyticsParams = (transactionMeta) => {
     try {
-      const { selectedAsset, gasEstimateType, chainId } = this.props;
+      const {
+        selectedAsset,
+        gasEstimateType,
+        chainId,
+        shouldUseSmartTransaction,
+      } = this.props;
       const { gasSelected, fromSelectedAddress } = this.state;
+      const { SmartTransactionsController } = Engine.context;
+
+      const smartTransactionMetricsProperties =
+        getSmartTransactionMetricsProperties(
+          SmartTransactionsController,
+          transactionMeta,
+        );
 
       return {
         active_currency: { value: selectedAsset?.symbol, anonymous: true },
@@ -296,29 +313,17 @@ class Confirm extends PureComponent {
           : this.originIsWalletConnect
           ? AppConstants.REQUEST_SOURCES.WC
           : AppConstants.REQUEST_SOURCES.IN_APP_BROWSER,
+
+        is_smart_transaction: shouldUseSmartTransaction,
+        ...smartTransactionMetricsProperties,
       };
     } catch (error) {
       return {};
     }
   };
 
-  withBlockaidMetricsParams = () => {
-    let blockaidParams = {};
-
-    const { transaction } = this.props;
-    if (
-      transaction.id === transaction.currentTransactionSecurityAlertResponse?.id
-    ) {
-      blockaidParams = getBlockaidMetricsParams(
-        transaction.currentTransactionSecurityAlertResponse?.response,
-      );
-    }
-
-    return blockaidParams;
-  };
-
   updateNavBar = () => {
-    const { navigation, route, resetTransaction } = this.props;
+    const { navigation, route, resetTransaction, transaction } = this.props;
     const colors = this.context.colors || mockTheme.colors;
     navigation.setOptions(
       getSendFlowTitle(
@@ -327,6 +332,7 @@ class Confirm extends PureComponent {
         route,
         colors,
         resetTransaction,
+        transaction,
       ),
     );
   };
@@ -351,11 +357,15 @@ class Confirm extends PureComponent {
      * Remove token that was added to the account temporarily
      * Ref.: https://github.com/MetaMask/metamask-mobile/pull/3989#issuecomment-1367558394
      */
-    if (selectedAsset.isETH || selectedAsset.tokenId) {
+    if (
+      selectedAsset.isETH ||
+      selectedAsset.tokenId ||
+      !selectedAsset.address
+    ) {
       return;
     }
 
-    const weiBalance = contractBalances[selectedAsset.address];
+    const weiBalance = hexToBN(contractBalances[selectedAsset.address]);
     if (weiBalance?.isZero()) {
       await TokensController.ignoreTokens([selectedAsset.address]);
     }
@@ -470,6 +480,11 @@ class Confirm extends PureComponent {
     } = this.props;
     this.updateNavBar();
 
+    const transaction = this.prepareTransactionToSend();
+    const { EIP1559GasTransaction, legacyGasTransaction } = this.state;
+
+    let error;
+
     if (this.state?.closeModal) this.toggleConfirmationModal(REVIEW);
 
     const { errorMessage, fromSelectedAddress } = this.state;
@@ -510,6 +525,11 @@ class Confirm extends PureComponent {
         gasEstimateTypeChanged
       ) {
         if (this.props.gasEstimateType === GAS_ESTIMATE_TYPES.FEE_MARKET) {
+          error = this.validateAmount({
+            transaction,
+            total: EIP1559GasTransaction.totalMaxHex,
+          });
+          this.setError(error);
           // eslint-disable-next-line react/no-did-update-set-state
           this.setState(
             {
@@ -534,6 +554,12 @@ class Confirm extends PureComponent {
               this.setState({ animateOnChange: false });
             },
           );
+        } else {
+          error = this.validateAmount({
+            transaction,
+            total: legacyGasTransaction.totalHex,
+          });
+          this.setError(error);
         }
         this.parseTransactionDataHeader();
       }
@@ -608,7 +634,10 @@ class Confirm extends PureComponent {
       const { TokensController } = Engine.context;
 
       if (!contractBalances[address]) {
-        await TokensController.addToken(address, symbol, decimals, {
+        await TokensController.addToken({
+          address,
+          symbol,
+          decimals,
           image,
           name,
         });
@@ -725,7 +754,9 @@ class Confirm extends PureComponent {
         }
       } else {
         const [, , amount] = decodeTransferData('transfer', transaction.data);
-        weiBalance = contractBalances[selectedAsset.address];
+
+        weiBalance = hexToBN(contractBalances[selectedAsset.address]);
+
         weiInput = hexToBN(amount);
         error =
           weiBalance && weiBalance.gte(weiInput)
@@ -799,6 +830,7 @@ class Confirm extends PureComponent {
       navigation,
       resetTransaction,
       gasEstimateType,
+      shouldUseSmartTransaction,
     } = this.props;
 
     const {
@@ -837,8 +869,6 @@ class Confirm extends PureComponent {
         ExtendedKeyringTypes.ledger,
       ]);
 
-      await this.persistTransactionParameters(transaction);
-
       if (isLedgerAccount) {
         const ledgerKeyring = await getLedgerKeyring();
         this.setState({ transactionConfirmed: false });
@@ -855,7 +885,7 @@ class Confirm extends PureComponent {
                 assetType,
                 {
                   ...this.getAnalyticsParams(),
-                  ...this.withBlockaidMetricsParams(),
+                  ...getBlockaidTransactionMetricsParams(transaction),
                 },
               ),
             type: 'signTransaction',
@@ -865,9 +895,18 @@ class Confirm extends PureComponent {
       }
 
       await KeyringController.resetQRKeyringState();
-      await ApprovalController.accept(transactionMeta.id, undefined, {
-        waitForResult: true,
-      });
+
+      if (shouldUseSmartTransaction) {
+        await ApprovalController.accept(transactionMeta.id, undefined, {
+          waitForResult: false,
+        });
+        navigation && navigation.dangerouslyGetParent()?.pop();
+      } else {
+        await ApprovalController.accept(transactionMeta.id, undefined, {
+          waitForResult: true,
+        });
+      }
+
       await new Promise((resolve) => resolve(result));
 
       if (transactionMeta.error) {
@@ -883,16 +922,23 @@ class Confirm extends PureComponent {
         this.props.metrics.trackEvent(
           MetaMetricsEvents.SEND_TRANSACTION_COMPLETED,
           {
-            ...this.getAnalyticsParams(),
-            ...this.withBlockaidMetricsParams(),
+            ...this.getAnalyticsParams(transactionMeta),
+            ...getBlockaidTransactionMetricsParams(transaction),
           },
         );
         stopGasPolling();
         resetTransaction();
-        navigation && navigation.dangerouslyGetParent()?.pop();
+
+        if (!shouldUseSmartTransaction) {
+          // We popped it already earlier
+          navigation && navigation.dangerouslyGetParent()?.pop();
+        }
       });
     } catch (error) {
-      if (!error?.message.startsWith(KEYSTONE_TX_CANCELED)) {
+      if (
+        !error?.message.startsWith(KEYSTONE_TX_CANCELED) &&
+        !error?.message.startsWith(STX_NO_HASH_ERROR)
+      ) {
         Alert.alert(
           strings('transactions.transaction_error'),
           error && error.message,
@@ -1095,9 +1141,10 @@ class Confirm extends PureComponent {
   };
 
   onContactUsClicked = () => {
+    const { transaction } = this.props;
     const analyticsParams = {
       ...this.getAnalyticsParams(),
-      ...this.withBlockaidMetricsParams(),
+      ...getBlockaidTransactionMetricsParams(transaction),
       external_link_clicked: 'security_alert_support_link',
     };
     this.props.metrics.trackEvent(
@@ -1144,9 +1191,14 @@ class Confirm extends PureComponent {
         (tx) => tx.id === transactionId,
       );
 
-    controllerTransactionMeta.transaction = transactionParams;
-
-    await updateTransaction(controllerTransactionMeta);
+    const updatedTx = {
+      ...controllerTransactionMeta,
+      txParams: {
+        ...transactionParams,
+        chainId: controllerTransactionMeta.chainId,
+      },
+    };
+    await updateTransaction(updatedTx);
   }
 
   render = () => {
@@ -1158,6 +1210,7 @@ class Confirm extends PureComponent {
       chainId,
       gasEstimateType,
       isNativeTokenBuySupported,
+      shouldUseSmartTransaction,
     } = this.props;
     const { nonce } = this.props.transaction;
     const {
@@ -1223,7 +1276,7 @@ class Confirm extends PureComponent {
               </Text>
               <Text
                 style={styles.textAmount}
-                {...generateTestId(Platform, COMFIRM_TXN_AMOUNT)}
+                testID={TransactionConfirmViewSelectorsIDs.COMFIRM_TXN_AMOUNT}
               >
                 {transactionValue}
               </Text>
@@ -1288,7 +1341,7 @@ class Confirm extends PureComponent {
               updateGasState={this.updateGasState}
             />
           )}
-          {showCustomNonce && (
+          {showCustomNonce && !shouldUseSmartTransaction && (
             <CustomNonce
               nonce={nonce}
               onNonceEdit={() => this.toggleConfirmationModal(EDIT_NONCE)}
@@ -1392,6 +1445,7 @@ const mapStateToProps = (state) => ({
     selectChainId(state),
     getRampNetworks(state),
   ),
+  shouldUseSmartTransaction: selectShouldUseSmartTransaction(state),
 });
 
 const mapDispatchToProps = (dispatch) => ({

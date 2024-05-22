@@ -1,9 +1,11 @@
 import { KeyringController } from '@metamask/keyring-controller';
-import { AndroidClient } from '../AndroidSDK/android-sdk-types';
+import { DappClient } from '../AndroidSDK/dapp-sdk-types';
 import RPCQueueManager from '../RPCQueueManager';
 import { SDKConnect } from '../SDKConnect';
 import DevLogger from './DevLogger';
 import { Connection } from '../Connection';
+import { isE2E } from '../../../util/test/utils';
+import { store } from '../../../../app/store/index';
 
 export const MAX_QUEUE_LOOP = Infinity;
 export const wait = (ms: number) =>
@@ -14,7 +16,7 @@ export const wait = (ms: number) =>
 export const waitForReadyClient = async (
   id: string,
   connectedClients: {
-    [clientId: string]: AndroidClient;
+    [clientId: string]: DappClient;
   },
 ) => {
   let i = 0;
@@ -83,14 +85,14 @@ export const waitForKeychainUnlocked = async ({
   keyringController: KeyringController;
   context?: string;
 }) => {
+  // Disable during e2e tests otherwise Detox fails
+  if (isE2E) {
+    return true;
+  }
+
   let i = 1;
   if (!keyringController) {
     console.warn('Keyring controller not found');
-  }
-
-  // Disable during e2e tests otherwise Detox fails
-  if (process.env.IS_TEST === 'true') {
-    return true;
   }
 
   let unlocked = keyringController.isUnlocked();
@@ -99,8 +101,8 @@ export const waitForKeychainUnlocked = async ({
   );
   while (!unlocked) {
     await wait(1000);
-    if (i % 60 === 0) {
-      console.warn(
+    if (i % 5 === 0) {
+      DevLogger.log(
         `SDKConnect [${context}] Waiting for keychain unlock... attempt ${i}`,
       );
     }
@@ -109,6 +111,38 @@ export const waitForKeychainUnlocked = async ({
   }
 
   return unlocked;
+};
+
+export const waitForUserLoggedIn = async ({
+  context,
+}: {
+  context?: string;
+}) => {
+  let i = 1;
+
+  // Disable during e2e tests otherwise Detox fails
+  if (isE2E) {
+    return true;
+  }
+
+  const state = store.getState();
+  let isLoggedIn = state.user.isLoggedIn ?? false;
+
+  DevLogger.log(
+    `wait:: waitForUserLoggedIn[${context}] isLoggedIn: ${isLoggedIn}`,
+  );
+  while (!isLoggedIn) {
+    await wait(1000);
+    if (i % 60 === 0) {
+      DevLogger.log(
+        `[wait.util] [${context}] Waiting for userLoggedIn... attempt ${i}`,
+      );
+    }
+    isLoggedIn = state.user.isLoggedIn ?? false;
+    i += 1;
+  }
+
+  return isLoggedIn;
 };
 
 export const waitForAndroidServiceBinding = async () => {

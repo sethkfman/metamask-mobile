@@ -26,7 +26,6 @@ import OptinMetrics from '../../UI/OptinMetrics';
 import MetaMaskAnimation from '../../UI/MetaMaskAnimation';
 import SimpleWebview from '../../Views/SimpleWebview';
 import SharedDeeplinkManager from '../../../core/DeeplinkManager/SharedDeeplinkManager';
-import Engine from '../../../core/Engine';
 import branch from 'react-native-branch';
 import AppConstants from '../../../core/AppConstants';
 import Logger from '../../../util/Logger';
@@ -86,11 +85,11 @@ import EthSignFriction from '../../../components/Views/Settings/AdvancedSettings
 import WalletActions from '../../Views/WalletActions';
 import NetworkSelector from '../../../components/Views/NetworkSelector';
 import ReturnToAppModal from '../../Views/ReturnToAppModal';
-import BlockaidIndicator from '../../Views/Settings/SecuritySettings/BlockaidIndicator';
 import EditAccountName from '../../Views/EditAccountName/EditAccountName';
 import WC2Manager, {
   isWC2Enabled,
 } from '../../../../app/core/WalletConnect/WalletConnectV2';
+import { DevLogger } from '../../../../app/core/SDKConnect/utils/DevLogger';
 import { PPOMView } from '../../../lib/ppom/PPOMView';
 import NavigationService from '../../../core/NavigationService';
 import LockScreen from '../../Views/LockScreen';
@@ -104,6 +103,10 @@ import { MetaMetrics } from '../../../core/Analytics';
 import trackErrorAsAnalytics from '../../../util/metrics/TrackError/trackErrorAsAnalytics';
 import generateDeviceAnalyticsMetaData from '../../../util/metrics/DeviceAnalyticsMetaData/generateDeviceAnalyticsMetaData';
 import generateUserSettingsAnalyticsMetaData from '../../../util/metrics/UserSettingsAnalyticsMetaData/generateUserProfileAnalyticsMetaData';
+import OnboardingSuccess from '../../Views/OnboardingSuccess';
+import DefaultSettings from '../../Views/OnboardingSuccess/DefaultSettings';
+import BasicFunctionalityModal from '../../UI/BasicFunctionality/BasicFunctionalityModal/BasicFunctionalityModal';
+import SmartTransactionsOptInModal from '../../Views/SmartTransactionsOptInModal/SmartTranactionsOptInModal';
 
 const clearStackNavigatorOptions = {
   headerShown: false,
@@ -119,6 +122,43 @@ const clearStackNavigatorOptions = {
 };
 
 const Stack = createStackNavigator();
+
+const OnboardingSuccessComponent = () => (
+  <OnboardingSuccess
+    onDone={() =>
+      NavigationService.navigation.reset({ routes: [{ name: 'HomeNav' }] })
+    }
+  />
+);
+
+const OnboardingSuccessComponentNoSRP = () => (
+  <OnboardingSuccess
+    noSRP
+    onDone={() =>
+      NavigationService.navigation.reset({
+        routes: [{ name: 'HomeNav' }],
+      })
+    }
+  />
+);
+
+const OnboardingSuccessFlow = () => (
+  <Stack.Navigator
+    name={Routes.ONBOARDING.SUCCESS_FLOW}
+    initialRouteName={Routes.ONBOARDING.SUCCESS}
+  >
+    <Stack.Screen
+      name={Routes.ONBOARDING.SUCCESS}
+      component={OnboardingSuccessComponent} // Used in SRP flow
+      options={OnboardingSuccess.navigationOptions}
+    />
+    <Stack.Screen
+      name={Routes.ONBOARDING.DEFAULT_SETTINGS} // This is being used in import wallet flow
+      component={DefaultSettings}
+      options={DefaultSettings.navigationOptions}
+    />
+  </Stack.Navigator>
+);
 /**
  * Stack navigator responsible for the onboarding process
  * Create Wallet and Import from Secret Recovery Phrase
@@ -149,6 +189,21 @@ const OnboardingNav = () => (
       name="AccountBackupStep1B"
       component={AccountBackupStep1B}
       options={AccountBackupStep1B.navigationOptions}
+    />
+    <Stack.Screen
+      name={Routes.ONBOARDING.SUCCESS_FLOW}
+      component={OnboardingSuccessFlow}
+      options={{ headerShown: false }}
+    />
+    <Stack.Screen
+      name={Routes.ONBOARDING.SUCCESS}
+      component={OnboardingSuccessComponentNoSRP} // Used in SRP flow
+      options={OnboardingSuccess.navigationOptions}
+    />
+    <Stack.Screen
+      name={Routes.ONBOARDING.DEFAULT_SETTINGS} // This is being used in import wallet flow
+      component={DefaultSettings}
+      options={DefaultSettings.navigationOptions}
     />
     <Stack.Screen
       name="ManualBackupStep1"
@@ -244,9 +299,7 @@ const App = ({ userLoggedIn }) => {
   const { colors } = useTheme();
   const { toastRef } = useContext(ToastContext);
   const dispatch = useDispatch();
-  const sdkInit = useRef(false);
-  const sdkPostInit = useRef(false);
-  const [postInitReady, setPostInitReady] = useState(false);
+  const sdkInit = useRef();
   const [onboarded, setOnboarded] = useState(false);
   const triggerSetCurrentRoute = (route) => {
     dispatch(setCurrentRoute(route));
@@ -259,12 +312,10 @@ const App = ({ userLoggedIn }) => {
   useEffect(() => {
     if (prevNavigator.current || !navigator) return;
     const appTriggeredAuth = async () => {
-      const { PreferencesController } = Engine.context;
-      const selectedAddress = PreferencesController.state.selectedAddress;
       const existingUser = await AsyncStorage.getItem(EXISTING_USER);
       try {
-        if (existingUser && selectedAddress) {
-          await Authentication.appTriggeredAuth({ selectedAddress });
+        if (existingUser) {
+          await Authentication.appTriggeredAuth();
           // we need to reset the navigator here so that the user cannot go back to the login screen
           navigator.reset({ routes: [{ name: Routes.ONBOARDING.HOME_NAV }] });
         }
@@ -353,10 +404,11 @@ const App = ({ userLoggedIn }) => {
 
           if (error) {
             // Log error for analytics and continue handling deeplink
-            Logger.error('Error from Branch: ' + error);
+            const branchError = new Error(error);
+            Logger.error(branchError, 'Error subscribing to branch.');
           }
 
-          if (sdkPostInit.current === true) {
+          if (sdkInit.current) {
             handleDeeplink(opts);
           } else {
             queueOfHandleDeeplinkFunctions.current =
@@ -391,13 +443,20 @@ const App = ({ userLoggedIn }) => {
   useEffect(() => {
     // Init SDKConnect only if the navigator is ready, user is onboarded, and SDK is not initialized.
     async function initSDKConnect() {
-      if (navigator?.getCurrentRoute && onboarded && !sdkInit.current) {
+      if (
+        navigator?.getCurrentRoute &&
+        onboarded &&
+        sdkInit.current === undefined &&
+        userLoggedIn
+      ) {
+        sdkInit.current = false;
         try {
           const sdkConnect = SDKConnect.getInstance();
           await sdkConnect.init({ navigation: navigator, context: 'Nav/App' });
-          setPostInitReady(true);
+          await SDKConnect.getInstance().postInit();
           sdkInit.current = true;
         } catch (err) {
+          sdkInit.current = undefined;
           console.error(`Cannot initialize SDKConnect`, err);
         }
       }
@@ -405,37 +464,19 @@ const App = ({ userLoggedIn }) => {
     initSDKConnect().catch((err) => {
       Logger.error(err, 'Error initializing SDKConnect');
     });
-  }, [navigator, onboarded]);
+  }, [navigator, onboarded, userLoggedIn]);
 
   useEffect(() => {
-    // Handle post-init process separately.
-    async function handlePostInit() {
-      if (
-        sdkInit.current &&
-        !sdkPostInit.current &&
-        postInitReady &&
-        userLoggedIn
-      ) {
-        try {
-          await SDKConnect.getInstance().postInit();
-          sdkPostInit.current = true;
-        } catch (err) {
-          console.error(`Cannot postInit SDKConnect`, err);
-        }
-      }
-    }
-    handlePostInit().catch((err) => {
-      Logger.error(err, 'Error postInit SDKConnect');
-    });
-  }, [userLoggedIn, postInitReady, queueOfHandleDeeplinkFunctions]);
-
-  useEffect(() => {
-    if (isWC2Enabled) {
-      WC2Manager.init().catch((err) => {
+    const currentRoute = navigator?.getCurrentRoute();
+    if (isWC2Enabled && currentRoute !== undefined) {
+      DevLogger.log(
+        `WalletConnect: Initializing WalletConnect Manager route=${currentRoute.name}`,
+      );
+      WC2Manager.init({ navigation: navigator }).catch((err) => {
         console.error('Cannot initialize WalletConnect Manager.', err);
       });
     }
-  }, []);
+  }, [navigator]);
 
   useEffect(() => {
     async function checkExisting() {
@@ -551,6 +592,10 @@ const App = ({ userLoggedIn }) => {
       />
       <Stack.Screen name={Routes.MODAL.WHATS_NEW} component={WhatsNewModal} />
       <Stack.Screen
+        name={Routes.MODAL.SMART_TRANSACTIONS_OPT_IN}
+        component={SmartTransactionsOptInModal}
+      />
+      <Stack.Screen
         name={Routes.SHEET.ACCOUNT_SELECTOR}
         component={AccountSelector}
       />
@@ -583,12 +628,12 @@ const App = ({ userLoggedIn }) => {
         component={NetworkSelector}
       />
       <Stack.Screen
-        name={Routes.SHEET.RETURN_TO_DAPP_MODAL}
-        component={ReturnToAppModal}
+        name={Routes.SHEET.BASIC_FUNCTIONALITY}
+        component={BasicFunctionalityModal}
       />
       <Stack.Screen
-        name={Routes.SHEET.BLOCKAID_INDICATOR}
-        component={BlockaidIndicator}
+        name={Routes.SHEET.RETURN_TO_DAPP_MODAL}
+        component={ReturnToAppModal}
       />
       <Stack.Screen
         name={Routes.SHEET.AMBIGUOUS_ADDRESS}
@@ -734,6 +779,11 @@ const App = ({ userLoggedIn }) => {
             <Stack.Screen
               name="OnboardingRootNav"
               component={OnboardingRootNav}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name={Routes.ONBOARDING.SUCCESS_FLOW}
+              component={OnboardingSuccessFlow}
               options={{ headerShown: false }}
             />
             {userLoggedIn && (

@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Linking, Platform, TouchableOpacity, View } from 'react-native';
+import { Linking, TouchableOpacity, View } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import { strings } from '../../../../../../../locales/i18n';
-import { ESTIMATED_FEE_TEST_ID } from '../../../../../../../wdio/screen-objects/testIDs/Screens/TransactionSummaryScreen.testIds';
-import generateTestId from '../../../../../../../wdio/utils/generateTestId';
+import { EditGasViewSelectorsIDs } from '../../../../../../../e2e/selectors/EditGasView.selectors';
+
 import AppConstants from '../../../../../../core/AppConstants';
 import { useGasTransaction } from '../../../../../../core/GasPolling/GasPolling';
 import Device from '../../../../../../util/device';
@@ -74,7 +74,6 @@ const TransactionReviewEIP1559Update = ({
     renderableTotalMinNative,
     renderableTotalMinConversion,
     renderableTotalMaxNative,
-    renderableTotalMaxConversion,
     renderableGasFeeMaxConversion,
     timeEstimateColor,
     timeEstimate,
@@ -159,7 +158,7 @@ const TransactionReviewEIP1559Update = ({
                 <TouchableOpacity
                   onPress={edit}
                   disabled={nativeCurrencySelected}
-                  {...generateTestId(Platform, ESTIMATED_FEE_TEST_ID)}
+                  testID={EditGasViewSelectorsIDs.ESTIMATED_FEE_TEST_ID}
                 >
                   <Text
                     upper
@@ -189,7 +188,7 @@ const TransactionReviewEIP1559Update = ({
                 onPress={edit}
                 disabled={!nativeCurrencySelected}
                 style={[Device.isSmallDevice() && styles.flex]}
-                {...generateTestId(Platform, ESTIMATED_FEE_TEST_ID)}
+                testID={EditGasViewSelectorsIDs.ESTIMATED_FEE_TEST_ID}
               >
                 <Text
                   primary
@@ -299,8 +298,10 @@ const TransactionReviewEIP1559Update = ({
                     grey={timeEstimateColor !== 'orange'}
                     orange={timeEstimateColor === 'orange'}
                   >
-                    {renderableGasFeeMaxNative} {'\n'}
-                    {renderableGasFeeMaxConversion}
+                    {switchNativeCurrencyDisplayOptions(
+                      renderableGasFeeMaxNative,
+                      renderableGasFeeMaxConversion,
+                    )}
                   </Text>
                 </Text>
               </FadeAnimationView>
@@ -389,8 +390,10 @@ const TransactionReviewEIP1559Update = ({
                       {strings('transaction_review_eip1559.max_amount')}:
                     </Text>{' '}
                     <Text small noMargin>
-                      {renderableTotalMaxNative} {'\n'}
-                      {renderableTotalMaxConversion}
+                      {switchNativeCurrencyDisplayOptions(
+                        renderableTotalMaxNative,
+                        renderableGasFeeMaxConversion,
+                      )}
                     </Text>
                   </Text>
                 </FadeAnimationView>

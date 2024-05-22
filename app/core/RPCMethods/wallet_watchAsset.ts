@@ -83,16 +83,17 @@ const wallet_watchAsset = async ({
   const finalTokenSymbol = fetchedSymbol ?? symbol;
   const finalTokenDecimals = fetchedDecimals ?? decimals;
 
-  await TokensController.watchAsset(
-    {
+  await TokensController.watchAsset({
+    asset: {
       address,
       symbol: finalTokenSymbol,
+      // @ts-expect-error TODO: Fix decimal type
       decimals: finalTokenDecimals,
       image,
     },
     type,
-    safeToChecksumAddress(interactingAddress),
-  );
+    interactingAddress: safeToChecksumAddress(interactingAddress),
+  });
 
   res.result = true;
 };
